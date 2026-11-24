@@ -2,6 +2,7 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const pool = require('./db');
 const { requireAuth, requireRole } = require('./middleware/auth');
+const courseRoutes = require('./routes/courses');
 const jwt = require('jsonwebtoken');
 
 const crypto = require('crypto');
@@ -13,6 +14,7 @@ if (!process.env.JWT_SECRET || !process.env.INTERNAL_API_KEY) {
 
 const app = express();
 app.use(express.json());
+app.use('/api/courses', courseRoutes);
 
 // ---------- helpers used by many doors ----------
 function parseId(value) {
@@ -29,17 +31,6 @@ app.get('/api/health', (req, res) => {
   res.status(200).json({ status: 'ok' });
 });
 
-app.get('/api/courses', async (req, res) => {
-  try {
-    const result = await pool.query(
-      "SELECT id, title, description, status FROM courses WHERE status = 'published' ORDER BY id"
-    );
-    res.status(200).json(result.rows);
-  } catch (err) {
-    console.error(err.message);
-    res.status(500).json({ error: 'Something went wrong on the server' });
-  }
-});
 
 app.post('/api/auth/register', async (req, res) => {
   const { name, email, password, role } = req.body || {};
@@ -107,125 +98,6 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// ---------- courses ----------
-app.post('/api/courses', requireAuth, requireRole('instructor'), async (req, res) => {
-  const { title, description } = req.body || {};
-  if (typeof title !== 'string' || !title.trim()) {
-    return res.status(400).json({ error: 'title is required' });
-  }
-  if (description !== undefined && typeof description !== 'string') {
-    return res.status(400).json({ error: 'description must be text' });
-  }
-  try {
-    const result = await pool.query(
-      'INSERT INTO courses (title, description, instructor_id) VALUES ($1, $2, $3) RETURNING id, title, description, status, instructor_id',
-      [title.trim(), description ? description.trim() : null, req.user.id]
-    );
-    res.status(201).json(result.rows[0]);
-  } catch (err) {
-    serverError(res, err);
-  }
-});
-
-app.get('/api/courses/mine', requireAuth, requireRole('instructor'), async (req, res) => {
-  try {
-    const result = await pool.query(
-      'SELECT id, title, description, status FROM courses WHERE instructor_id = $1 ORDER BY id',
-      [req.user.id]
-    );
-    res.status(200).json(result.rows);
-  } catch (err) {
-    serverError(res, err);
-  }
-});
-
-app.get('/api/courses/:id', requireAuth, async (req, res) => {
-  const id = parseId(req.params.id);
-  if (!id) {
-    return res.status(400).json({ error: 'course id must be a positive whole number' });
-  }
-  try {
-    const found = await pool.query(
-      'SELECT id, title, description, status, instructor_id FROM courses WHERE id = $1',
-      [id]
-    );
-    const course = found.rows[0];
-    // Unpublished courses are visible only to their own instructor
-    if (!course || (course.status !== 'published' && course.instructor_id !== req.user.id)) {
-      return res.status(404).json({ error: 'Course not found' });
-    }
-    const modules = await pool.query(
-      'SELECT id, title, position, due_date FROM modules WHERE course_id = $1 ORDER BY position',
-      [id]
-    );
-    res.status(200).json({ ...course, modules: modules.rows });
-  } catch (err) {
-    serverError(res, err);
-  }
-});
-
-app.put('/api/courses/:id', requireAuth, requireRole('instructor'), async (req, res) => {
-  const id = parseId(req.params.id);
-  if (!id) {
-    return res.status(400).json({ error: 'course id must be a positive whole number' });
-  }
-  const { title, description } = req.body || {};
-  if (typeof title !== 'string' || !title.trim()) {
-    return res.status(400).json({ error: 'title is required' });
-  }
-  if (description !== undefined && typeof description !== 'string') {
-    return res.status(400).json({ error: 'description must be text' });
-  }
-  try {
-    const found = await pool.query('SELECT instructor_id FROM courses WHERE id = $1', [id]);
-    if (!found.rows[0]) {
-      return res.status(404).json({ error: 'Course not found' });
-    }
-    if (found.rows[0].instructor_id !== req.user.id) {
-      return res.status(403).json({ error: 'You can only edit your own courses' });
-    }
-    const result = await pool.query(
-      'UPDATE courses SET title = $1, description = $2 WHERE id = $3 RETURNING id, title, description, status',
-      [title.trim(), description ? description.trim() : null, id]
-    );
-    res.status(200).json(result.rows[0]);
-  } catch (err) {
-    serverError(res, err);
-  }
-});
-
-app.patch('/api/courses/:id/status', requireAuth, requireRole('instructor'), async (req, res) => {
-  const id = parseId(req.params.id);
-  if (!id) {
-    return res.status(400).json({ error: 'course id must be a positive whole number' });
-  }
-  const { status } = req.body || {};
-  if (!['published', 'archived'].includes(status)) {
-    return res.status(400).json({ error: 'status must be published or archived' });
-  }
-  try {
-    const found = await pool.query('SELECT instructor_id FROM courses WHERE id = $1', [id]);
-    if (!found.rows[0]) {
-      return res.status(404).json({ error: 'Course not found' });
-    }
-    if (found.rows[0].instructor_id !== req.user.id) {
-      return res.status(403).json({ error: 'You can only change your own courses' });
-    }
-    if (status === 'published') {
-      const count = await pool.query('SELECT COUNT(*)::int AS n FROM modules WHERE course_id = $1', [id]);
-      if (count.rows[0].n === 0) {
-        return res.status(409).json({ error: 'A course needs at least one module before it can be published' });
-      }
-    }
-    const result = await pool.query(
-      'UPDATE courses SET status = $1 WHERE id = $2 RETURNING id, title, status',
-      [status, id]
-    );
-    res.status(200).json(result.rows[0]);
-  } catch (err) {
-    serverError(res, err);
-  }
-});
 
 // ---------- modules ----------
 function isValidDate(s) {
