@@ -3,6 +3,7 @@ const bcrypt = require('bcrypt');
 const pool = require('./db');
 const { requireAuth, requireRole } = require('./middleware/auth');
 const courseRoutes = require('./routes/courses');
+const moduleRoutes = require('./routes/modules');
 const jwt = require('jsonwebtoken');
 
 const crypto = require('crypto');
@@ -15,6 +16,7 @@ if (!process.env.JWT_SECRET || !process.env.INTERNAL_API_KEY) {
 const app = express();
 app.use(express.json());
 app.use('/api/courses', courseRoutes);
+app.use('/api', moduleRoutes);
 
 // ---------- helpers used by many doors ----------
 function parseId(value) {
@@ -98,145 +100,6 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-
-// ---------- modules ----------
-function isValidDate(s) {
-  if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
-  const [y, m, d] = s.split('-').map(Number);
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
-}
-
-function checkModuleBody(body) {
-  const { title, position, due_date } = body || {};
-  if (typeof title !== 'string' || !title.trim()) return 'title is required';
-  if (!Number.isInteger(position) || position < 1) return 'position must be a whole number, 1 or more';
-  if (due_date !== undefined && due_date !== null && !isValidDate(due_date)) {
-    return 'due_date must be a real date written as YYYY-MM-DD';
-  }
-  return null;
-}
-
-app.post('/api/courses/:id/modules', requireAuth, requireRole('instructor'), async (req, res) => {
-  const courseId = parseId(req.params.id);
-  if (!courseId) {
-    return res.status(400).json({ error: 'course id must be a positive whole number' });
-  }
-  const problem = checkModuleBody(req.body);
-  if (problem) {
-    return res.status(400).json({ error: problem });
-  }
-  const { title, position, due_date } = req.body;
-  try {
-    const found = await pool.query('SELECT instructor_id FROM courses WHERE id = $1', [courseId]);
-    if (!found.rows[0]) {
-      return res.status(404).json({ error: 'Course not found' });
-    }
-    if (found.rows[0].instructor_id !== req.user.id) {
-      return res.status(403).json({ error: 'You can only add modules to your own courses' });
-    }
-    const result = await pool.query(
-      'INSERT INTO modules (course_id, title, position, due_date) VALUES ($1, $2, $3, $4) RETURNING id, course_id, title, position, due_date',
-      [courseId, title.trim(), position, due_date || null]
-    );
-    res.status(201).json(result.rows[0]);
-  } catch (err) {
-    if (err.code === '23505') {
-      return res.status(409).json({ error: 'That position is already used in this course' });
-    }
-    serverError(res, err);
-  }
-});
-
-app.put('/api/modules/:id', requireAuth, requireRole('instructor'), async (req, res) => {
-  const id = parseId(req.params.id);
-  if (!id) {
-    return res.status(400).json({ error: 'module id must be a positive whole number' });
-  }
-  const problem = checkModuleBody(req.body);
-  if (problem) {
-    return res.status(400).json({ error: problem });
-  }
-  const { title, position, due_date } = req.body;
-  try {
-    const found = await pool.query(
-      'SELECT c.instructor_id FROM modules m JOIN courses c ON c.id = m.course_id WHERE m.id = $1',
-      [id]
-    );
-    if (!found.rows[0]) {
-      return res.status(404).json({ error: 'Module not found' });
-    }
-    if (found.rows[0].instructor_id !== req.user.id) {
-      return res.status(403).json({ error: 'You can only edit modules of your own courses' });
-    }
-    const result = await pool.query(
-      'UPDATE modules SET title = $1, position = $2, due_date = $3 WHERE id = $4 RETURNING id, course_id, title, position, due_date',
-      [title.trim(), position, due_date || null, id]
-    );
-    res.status(200).json(result.rows[0]);
-  } catch (err) {
-    if (err.code === '23505') {
-      return res.status(409).json({ error: 'That position is already used in this course' });
-    }
-    serverError(res, err);
-  }
-});
-
-app.delete('/api/modules/:id', requireAuth, requireRole('instructor'), async (req, res) => {
-  const id = parseId(req.params.id);
-  if (!id) {
-    return res.status(400).json({ error: 'module id must be a positive whole number' });
-  }
-  try {
-    const found = await pool.query(
-      'SELECT c.instructor_id FROM modules m JOIN courses c ON c.id = m.course_id WHERE m.id = $1',
-      [id]
-    );
-    if (!found.rows[0]) {
-      return res.status(404).json({ error: 'Module not found' });
-    }
-    if (found.rows[0].instructor_id !== req.user.id) {
-      return res.status(403).json({ error: 'You can only delete modules of your own courses' });
-    }
-    const done = await pool.query('SELECT COUNT(*)::int AS n FROM module_completions WHERE module_id = $1', [id]);
-    if (done.rows[0].n > 0) {
-      return res.status(409).json({ error: 'Students have already completed this module, so it cannot be deleted' });
-    }
-    await pool.query('DELETE FROM modules WHERE id = $1', [id]);
-    res.status(204).send();
-  } catch (err) {
-    serverError(res, err);
-  }
-});
-
-app.get('/api/modules/upcoming', requireAuth, requireRole('student'), async (req, res) => {
-  const days = req.query.days === undefined ? 14 : Number(req.query.days);
-  if (!Number.isInteger(days) || days < 1 || days > 365) {
-    return res.status(400).json({ error: 'days must be a whole number from 1 to 365' });
-  }
-  try {
-    const result = await pool.query(
-      `SELECT m.id AS module_id, m.title, m.due_date, c.id AS course_id, c.title AS course_title
-       FROM enrollments e
-       JOIN courses c ON c.id = e.course_id
-       JOIN modules m ON m.course_id = c.id
-       WHERE e.student_id = $1
-         AND e.status = 'active'
-         AND m.due_date IS NOT NULL
-         AND m.due_date >= CURRENT_DATE
-         AND m.due_date <= CURRENT_DATE + $2::int
-         AND NOT EXISTS (
-           SELECT 1 FROM module_completions mc
-           WHERE mc.enrollment_id = e.id AND mc.module_id = m.id
-         )
-       ORDER BY m.due_date, m.id`,
-      [req.user.id, days]
-    );
-    res.status(200).json(result.rows);
-  } catch (err) {
-    serverError(res, err);
-  }
-});
 
 // ---------- enrollments ----------
 async function getProgress(enrollmentId, courseId) {
