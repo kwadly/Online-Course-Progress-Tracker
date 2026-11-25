@@ -40,4 +40,10 @@ async function login(body) {
   return { token, user: { id: user.id, name: user.name, email: user.email, role: user.role } };
 }
 
-module.exports = { register, login };
+async function getMe(user) {
+  const found = await userRepository.findById(user.id);
+  if (!found) throw httpError(404, 'User not found');
+  return found;
+}
+
+module.exports = { register, login, getMe };
