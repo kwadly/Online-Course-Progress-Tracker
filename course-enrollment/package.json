@@ -4,7 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "zip": "node scripts/zip-lambda.js"
   },
   "keywords": [],
   "author": "",
@@ -18,5 +19,8 @@
     "jsonwebtoken": "^9.0.3",
     "pg": "^8.23.1",
     "serverless-http": "^4.0.0"
+  },
+  "devDependencies": {
+    "archiver": "^7.0.1"
   }
 }
