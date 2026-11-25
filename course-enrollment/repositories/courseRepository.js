@@ -1,10 +1,19 @@
 const pool = require('../db');
 
-async function listPublished() {
+async function listPublished({ search, limit, offset }) {
+  const pattern = search ? '%' + search.replace(/[\\%_]/g, '\\$&') + '%' : null;
   const result = await pool.query(
-    "SELECT id, title, description, status FROM courses WHERE status = 'published' ORDER BY id"
+    `SELECT id, title, description, status FROM courses
+     WHERE status = 'published' AND ($1::text IS NULL OR title ILIKE $1)
+     ORDER BY id LIMIT $2 OFFSET $3`,
+    [pattern, limit, offset]
   );
-  return result.rows;
+  const count = await pool.query(
+    `SELECT COUNT(*)::int AS n FROM courses
+     WHERE status = 'published' AND ($1::text IS NULL OR title ILIKE $1)`,
+    [pattern]
+  );
+  return { rows: result.rows, total: count.rows[0].n };
 }
 
 async function listByInstructor(instructorId) {
