@@ -7,7 +7,7 @@ const router = express.Router();
 
 router.get('/', async (req, res) => {
   try {
-    res.status(200).json(await courseService.listPublished());
+    res.status(200).json(await courseService.listPublished(req.query));
   } catch (err) {
     handleError(res, err);
   }

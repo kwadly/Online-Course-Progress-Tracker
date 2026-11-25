@@ -19,8 +19,24 @@ async function requireOwnCourse(user, id, forbiddenMessage) {
   return course;
 }
 
-async function listPublished() {
-  return courseRepository.listPublished();
+async function listPublished(query) {
+  const page = query.page === undefined ? 1 : Number(query.page);
+  const limit = query.limit === undefined ? 10 : Number(query.limit);
+  if (!Number.isInteger(page) || page < 1) {
+    throw httpError(400, 'page must be a whole number, 1 or more');
+  }
+  if (!Number.isInteger(limit) || limit < 1 || limit > 50) {
+    throw httpError(400, 'limit must be a whole number from 1 to 50');
+  }
+  let search = null;
+  if (query.search !== undefined) {
+    if (typeof query.search !== 'string') throw httpError(400, 'search must be text');
+    search = query.search.trim() || null;
+  }
+  const { rows, total } = await courseRepository.listPublished({
+    search, limit, offset: (page - 1) * limit,
+  });
+  return { page, limit, total, courses: rows };
 }
 
 async function listMine(user) {
