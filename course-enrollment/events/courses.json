@@ -1,0 +1,9 @@
+{
+  "httpMethod": "GET",
+  "path": "/api/courses",
+  "headers": {},
+  "queryStringParameters": null,
+  "requestContext": {},
+  "body": null,
+  "isBase64Encoded": false
+}
