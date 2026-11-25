@@ -1,5 +1,6 @@
 require('dotenv').config();
 const express = require('express');
+const cors = require('cors');
 
 if (!process.env.JWT_SECRET || !process.env.INTERNAL_API_KEY || !process.env.DATABASE_URL) {
   console.error('DATABASE_URL, JWT_SECRET and INTERNAL_API_KEY must be set in .env');
@@ -14,6 +15,7 @@ const enrollmentRoutes = require('./routes/enrollments');
 
 const app = express();
 app.use(express.json());
+app.use(cors());
 
 app.get('/api/health', (req, res) => {
   res.status(200).json({ status: 'ok' });
