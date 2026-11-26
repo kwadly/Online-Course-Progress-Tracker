@@ -24,4 +24,8 @@ app.use('/api/courses', courseRoutes);
 app.use('/api', moduleRoutes);
 app.use('/api', enrollmentRoutes);
 
+app.use((req, res) => {
+  res.status(404).json({ error: 'Route not found' });
+});
+
 module.exports = app;
