@@ -46,7 +46,7 @@ async function runJob() {
 
     const studied = studiedByUser.get(userId).get(e.course_id) || 0;
 
-    for (const m of e.unfinished_modules || []) {
+    for (const m of e.due_modules || []) {
       if (!m.due_date) continue;
       const left = daysLeft(m.due_date);
       if (left > WINDOW_DAYS) continue;
