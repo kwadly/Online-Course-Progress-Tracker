@@ -47,8 +47,10 @@ echo "4/7 SNS topic and S3 bucket"
 TOPIC_ARN=$(aws sns create-topic --name $TOPIC --query TopicArn --output text)
 aws s3api head-bucket --bucket $BUCKET > /dev/null 2>&1 || aws s3 mb s3://$BUCKET > /dev/null
 
-echo "5/7 Lambda function"
+echo "5/7 Lambda functions"
+RECORDER=course-activity-recorder
 ENVIRONMENT="Variables={SECRET_NAME=$SECRET,SNS_TOPIC_ARN=$TOPIC_ARN}"
+RECORDER_ENV="Variables={SECRET_NAME=$SECRET}"
 if aws lambda get-function --function-name $FUNCTION > /dev/null 2>&1; then
   aws lambda update-function-code --function-name $FUNCTION --zip-file fileb://course-enrollment/dist/lambda.zip > /dev/null
   aws lambda wait function-updated-v2 --function-name $FUNCTION
@@ -57,6 +59,18 @@ else
   aws lambda create-function --function-name $FUNCTION --runtime nodejs24.x --handler lambda.handler --role arn:aws:iam::$ACCOUNT:role/$ROLE --zip-file fileb://course-enrollment/dist/lambda.zip --timeout 10 --memory-size 256 --environment "$ENVIRONMENT" > /dev/null
 fi
 aws lambda wait function-updated-v2 --function-name $FUNCTION
+
+if aws lambda get-function --function-name $RECORDER > /dev/null 2>&1; then
+  aws lambda update-function-code --function-name $RECORDER --zip-file fileb://course-enrollment/dist/lambda.zip > /dev/null
+  aws lambda wait function-updated-v2 --function-name $RECORDER
+  aws lambda update-function-configuration --function-name $RECORDER --environment "$RECORDER_ENV" > /dev/null
+else
+  aws lambda create-function --function-name $RECORDER --runtime nodejs24.x --handler recorder.handler --role arn:aws:iam::$ACCOUNT:role/$ROLE --zip-file fileb://course-enrollment/dist/lambda.zip --timeout 15 --memory-size 256 --environment "$RECORDER_ENV" > /dev/null
+fi
+aws lambda wait function-updated-v2 --function-name $RECORDER
+aws lambda add-permission --function-name $RECORDER --statement-id sns-invoke --action lambda:InvokeFunction --principal sns.amazonaws.com --source-arn $TOPIC_ARN > /dev/null 2>&1 || true
+RECORDER_ARN=arn:aws:lambda:$REGION:$ACCOUNT:function:$RECORDER
+aws sns subscribe --topic-arn $TOPIC_ARN --protocol lambda --notification-endpoint $RECORDER_ARN > /dev/null
 
 echo "6/7 API Gateway"
 API_ID=$(aws apigatewayv2 get-apis --query "Items[?Name=='$API_NAME'].ApiId | [0]" --output text)
