@@ -8,6 +8,7 @@ const courseRoutes = require('./routes/courses');
 const moduleRoutes = require('./routes/modules');
 const enrollmentRoutes = require('./routes/enrollments');
 const requestLogger = require('./middleware/requestLogger');
+const activityRoutes = require('./routes/activity');
 
 const app = express();
 app.use(express.json());
@@ -23,6 +24,7 @@ app.use('/api/internal', internalRoutes);
 app.use('/api/courses', courseRoutes);
 app.use('/api', moduleRoutes);
 app.use('/api', enrollmentRoutes);
+app.use('/api', activityRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Route not found' });

@@ -18,7 +18,7 @@ archive.on('error', (err) => { throw err; });
 
 archive.pipe(output);
 
-['app.js', 'lambda.js', 'db.js', 'package.json'].forEach((file) => {
+['app.js', 'lambda.js', 'recorder.js' , 'db.js', 'package.json'].forEach((file) => {
   archive.file(path.join(root, file), { name: file });
 });
 
