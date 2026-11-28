@@ -1,6 +1,7 @@
 const enrollmentRepository = require('../repositories/enrollmentRepository');
 const courseRepository = require('../repositories/courseRepository');
 const { httpError } = require('../utils/http');
+const { publishEvent } = require('../utils/events');
 
 function percentOf(done, total) {
   return total ? Math.round((done * 100) / total) : 0;
@@ -31,10 +32,14 @@ async function enroll(user, courseId) {
       throw httpError(409, 'You are already enrolled in this course');
     }
     // Re-enrolling after a drop brings the old enrollment back
-    return { created: false, enrollment: await enrollmentRepository.reactivate(existing.id) };
+    const back = await enrollmentRepository.reactivate(existing.id);
+    await publishEvent('student_enrolled', { student_id: user.id, course_id: courseId, enrollment_id: existing.id });
+    return { created: false, enrollment: back };
   }
   try {
-    return { created: true, enrollment: await enrollmentRepository.create(user.id, courseId) };
+    const created = await enrollmentRepository.create(user.id, courseId);
+    await publishEvent('student_enrolled', { student_id: user.id, course_id: courseId, enrollment_id: created.id });
+    return { created: true, enrollment: created };
   } catch (err) {
     if (err.code === '23505') throw httpError(409, 'You are already enrolled in this course');
     throw err;
@@ -46,7 +51,9 @@ async function drop(user, id) {
   if (enrollment.status !== 'active') {
     throw httpError(409, 'Only an active enrollment can be dropped');
   }
-  return enrollmentRepository.setStatus(id, 'dropped');
+    const dropped = await enrollmentRepository.setStatus(id, 'dropped');
+    await publishEvent('student_dropped', { student_id: user.id, course_id: enrollment.course_id, enrollment_id: id });
+    return dropped;
 }
 
 async function listMine(user) {
@@ -75,7 +82,11 @@ async function completeModule(user, id, moduleId) {
     await enrollmentRepository.setStatus(id, 'completed');
     status = 'completed';
   }
-  return { enrollment_id: id, module_id: moduleId, enrollment_status: status, ...progress };
+    await publishEvent('module_completed', { student_id: user.id, course_id: enrollment.course_id, enrollment_id: id, module_id: moduleId, percent: progress.percent });
+    if (status === 'completed') {
+      await publishEvent('course_completed', { student_id: user.id, course_id: enrollment.course_id, enrollment_id: id });
+    }
+    return { enrollment_id: id, module_id: moduleId, enrollment_status: status, ...progress };
 }
 
 async function undoModule(user, id, moduleId) {

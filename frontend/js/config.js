@@ -1,0 +1,1 @@
+window.API_URL = 'http://5d6ffc98f0.execute-api.localhost.floci.io:4566';

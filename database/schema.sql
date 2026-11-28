@@ -108,8 +108,19 @@ CREATE TABLE IF NOT EXISTS study_plans (
   UNIQUE (user_id, course_id, week_start)
 );
 
+CREATE TABLE IF NOT EXISTS activity_events (
+  id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  event_type TEXT NOT NULL,
+  student_id INTEGER NOT NULL REFERENCES users(id),
+  course_id INTEGER NOT NULL REFERENCES courses(id),
+  module_id INTEGER,
+  percent INTEGER,
+  occurred_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- INDEXES for lookups
 CREATE INDEX IF NOT EXISTS idx_modules_course ON modules(course_id);
 CREATE INDEX IF NOT EXISTS idx_enrollments_course ON enrollments(course_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_user_date ON study_sessions(user_id, studied_at);
 CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders(status, remind_at);
+CREATE INDEX IF NOT EXISTS idx_activity_course ON activity_events(course_id, occurred_at DESC);
